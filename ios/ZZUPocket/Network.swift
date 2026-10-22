@@ -42,6 +42,11 @@ enum API {
     static func url(_ base: String, _ path: String, query: [URLQueryItem] = []) throws -> URL {
         guard var parts = URLComponents(string: base + path) else { throw PocketError.message("无效的服务地址") }
         parts.queryItems = query.isEmpty ? nil : query
+        // Foundation leaves '+' untouched in query items. CAS interprets query as form data,
+        // where '+' becomes a space. RSA Base64 must therefore send '+' as '%2B'.
+        if let encoded = parts.percentEncodedQuery {
+            parts.percentEncodedQuery = encoded.replacingOccurrences(of: "+", with: "%2B")
+        }
         guard let result = parts.url else { throw PocketError.message("无效的请求地址") }
         return result
     }
@@ -137,9 +142,15 @@ enum CAS {
     private static func envelope(_ data: Data, _ response: HTTPURLResponse, step: String) throws -> [String: Any] {
         let value: [String: Any]
         do { value = try API.json(data, response) }
-        catch { throw PocketError.message("\(step)：\(error.localizedDescription)") }
-        guard value["code"] as? Int == 0 else { throw PocketError.message(value["message"] as? String ?? "认证失败") }
+        catch { throw PocketError.message("\(step)：\(safeMessage(error.localizedDescription))") }
+        guard value["code"] as? Int == 0 else { throw PocketError.message("\(step)：\(safeMessage(value["message"] as? String ?? "认证失败"))") }
         return value
+    }
+
+    private static func safeMessage(_ text: String) -> String {
+        // A CAS decrypt error may echo the entire encrypted username/password; don't display it.
+        if text.contains("解密字符串") { return "认证服务无法解密请求参数，请更新客户端后重试" }
+        return String(text.prefix(200))
     }
 
     private static var deviceId: String {
