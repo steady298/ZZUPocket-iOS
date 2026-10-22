@@ -29,8 +29,13 @@ enum API {
     }
 
     static func json(_ data: Data, _ response: HTTPURLResponse) throws -> [String: Any] {
-        guard (200..<300).contains(response.statusCode) else { throw PocketError.message("服务器返回 HTTP \(response.statusCode)") }
-        guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw PocketError.message("服务器响应格式有误") }
+        guard let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw PocketError.message("服务器返回 HTTP \(response.statusCode)，响应不是 JSON。请稍后重试")
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            let message = value["message"] as? String ?? value["msg"] as? String ?? value["error"] as? String
+            throw PocketError.message("服务器返回 HTTP \(response.statusCode)\(message.map { "：\($0)" } ?? "")")
+        }
         return value
     }
 
@@ -93,13 +98,13 @@ enum CAS {
             .init(name: "deviceId", value: deviceId)
         ])
         let (data, response) = try await API.request(url, method: "POST", headers: appHeaders, body: Data())
-        let value = try envelope(data, response)
+        let value = try envelope(data, response, step: "检测是否需要短信验证")
         guard let result = value["data"] as? [String: Any], let state = result["state"] as? String else { throw PocketError.message("登录状态缺失") }
         guard result["need"] as? Bool == true else { return (state, nil) }
         guard result["mfaTypeSecurePhone"] as? Bool == true else { throw PocketError.message("该账号不支持手机号验证") }
         let initURL = try API.url(API.cas, "/token/mfa/initByType/securephone", query: [.init(name: "state", value: state)])
         let (initData, initResponse) = try await API.request(initURL, headers: appHeaders)
-        let initValue = try envelope(initData, initResponse)
+        let initValue = try envelope(initData, initResponse, step: "初始化短信验证")
         guard let info = initValue["data"] as? [String: Any], let gid = info["gid"] as? String, !gid.isEmpty else { throw PocketError.message("短信验证初始化失败") }
         return (state, Challenge(state: state, gid: gid, attest: (info["attestServerUrl"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "\(API.cas)/attest/api/guard"))
     }
@@ -116,7 +121,7 @@ enum CAS {
     private static func sms(_ challenge: Challenge, path: String, data: [String: String]) async throws -> [String: Any] {
         guard let url = URL(string: challenge.attest.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/guard/securephone/" + path), url.scheme == "https", url.host == URL(string: API.cas)?.host else { throw PocketError.message("短信服务地址无效") }
         let (body, response) = try await API.request(url, method: "POST", headers: appHeaders.merging(["Content-Type": "application/json"]) { _, new in new }, body: try JSONSerialization.data(withJSONObject: data))
-        return try envelope(body, response)
+        return try envelope(body, response, step: path == "send" ? "发送验证码" : "校验验证码")
     }
 
     static func login(account: String, password: String, state: String) async throws -> String {
@@ -124,20 +129,22 @@ enum CAS {
         let values = ["username": try encrypt(account, key), "password": try encrypt(password, key), "appId": "com.supwisdom.zzu", "osType": "android", "geo": "", "deviceId": deviceId, "clientId": "", "mfaState": state]
         let url = try API.url(API.cas, "/token/password/passwordLogin", query: values.map { URLQueryItem(name: $0.key, value: $0.value) })
         let (body, response) = try await API.request(url, method: "POST", headers: appHeaders, body: Data())
-        let value = try envelope(body, response)
+        let value = try envelope(body, response, step: "获取登录令牌")
         guard let token = (value["data"] as? [String: Any])?["idToken"] as? String, !token.isEmpty else { throw PocketError.message("服务器未返回令牌") }
         return token
     }
 
-    private static func envelope(_ data: Data, _ response: HTTPURLResponse) throws -> [String: Any] {
-        let value = try API.json(data, response)
+    private static func envelope(_ data: Data, _ response: HTTPURLResponse, step: String) throws -> [String: Any] {
+        let value: [String: Any]
+        do { value = try API.json(data, response) }
+        catch { throw PocketError.message("\(step)：\(error.localizedDescription)") }
         guard value["code"] as? Int == 0 else { throw PocketError.message(value["message"] as? String ?? "认证失败") }
         return value
     }
 
     private static var deviceId: String {
         if let existing = UserDefaults.standard.string(forKey: "casDeviceId") { return existing }
-        let id = UUID().uuidString.lowercased()
+        let id = "zzupocket-" + UUID().uuidString.lowercased()
         UserDefaults.standard.set(id, forKey: "casDeviceId")
         return id
     }
