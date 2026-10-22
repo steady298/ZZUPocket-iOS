@@ -68,34 +68,85 @@ struct FocusScreen: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("专注计时") {
-                    TextField("标签", text: $focus.label)
-                    Stepper("时长 \(focus.minutes) 分钟", value: $focus.minutes, in: 1...180).disabled(focus.endDate != nil)
-                    Text(String(format: "%02d:%02d", focus.remaining / 60, focus.remaining % 60))
-                        .font(.system(size: 52, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .frame(maxWidth: .infinity)
-                    if focus.endDate == nil {
-                        Button("开始专注") { focus.start() }
-                    } else {
-                        Button("结束并记录") { focus.stop() }
-                    }
-                }
-                Section("记录 · 共 \(focus.totalMinutes) 分钟") {
-                    ForEach(focus.records.prefix(50)) { item in
+            ScrollView {
+                VStack(spacing: 18) {
+                    VStack(spacing: 18) {
                         HStack {
-                            VStack(alignment: .leading) {
-                                Text(item.label)
-                                Text(item.startedAt.formatted(date: .abbreviated, time: .shortened))
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
+                            Label("专注时光", systemImage: "sparkles")
+                                .font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.86))
                             Spacer()
-                            Text("\(max(1, item.seconds / 60)) 分钟")
+                            Text(focus.endDate == nil ? "准备开始" : "专注中")
+                                .font(.caption.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 6)
+                                .background(.white.opacity(0.17), in: Capsule())
+                        }.foregroundStyle(.white)
+
+                        ZStack {
+                            Circle().stroke(.white.opacity(0.18), lineWidth: 10)
+                            Circle().trim(from: 0, to: focus.endDate == nil ? 1 : CGFloat(focus.remaining) / CGFloat(max(1, focus.minutes * 60)))
+                                .stroke(.white, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                                .rotationEffect(.degrees(-90)).animation(.easeInOut(duration: 0.35), value: focus.remaining)
+                            VStack(spacing: 3) {
+                                Text(String(format: "%02d:%02d", focus.remaining / 60, focus.remaining % 60))
+                                    .font(.system(size: 48, weight: .bold, design: .rounded)).monospacedDigit().contentTransition(.numericText())
+                                Text(focus.label.isEmpty ? "专注" : focus.label).font(.subheadline).foregroundStyle(.white.opacity(0.82))
+                            }.foregroundStyle(.white)
+                        }.frame(width: 210, height: 210).padding(.vertical, 4)
+
+                        if focus.endDate == nil {
+                            TextField("给这次专注起个名称", text: $focus.label)
+                                .multilineTextAlignment(.center).padding(12)
+                                .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 13))
+                            HStack {
+                                Text("时长").foregroundStyle(.white.opacity(0.82))
+                                Spacer()
+                                Stepper("\(focus.minutes) 分钟", value: $focus.minutes, in: 1...180)
+                                    .fixedSize().labelsHidden()
+                                Text("\(focus.minutes) 分钟").font(.subheadline.weight(.semibold).monospacedDigit())
+                            }.foregroundStyle(.white)
+                            Button { focus.start() } label: {
+                                Label("开始专注", systemImage: "play.fill").font(.headline)
+                                    .frame(maxWidth: .infinity).padding(15)
+                                    .foregroundStyle(PocketStyle.deepAccent).background(.white, in: RoundedRectangle(cornerRadius: 15))
+                            }
+                        } else {
+                            Button { focus.stop() } label: {
+                                Label("结束并保存记录", systemImage: "stop.fill").font(.headline)
+                                    .frame(maxWidth: .infinity).padding(15)
+                                    .foregroundStyle(PocketStyle.deepAccent).background(.white, in: RoundedRectangle(cornerRadius: 15))
+                            }
+                        }
+                    }
+                    .padding(20)
+                    .background(LinearGradient(colors: [PocketStyle.accent, PocketStyle.deepAccent], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("專注記錄").font(.headline)
+                            Spacer()
+                            Text("累计 \(focus.totalMinutes) 分钟").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if focus.records.isEmpty {
+                            ContentUnavailableView("还没有专注记录", systemImage: "chart.bar.xaxis", description: Text("完成一次专注后，记录会显示在这里。"))
+                                .padding(.vertical, 8).background(.background, in: RoundedRectangle(cornerRadius: 18))
+                        }
+                        ForEach(focus.records.prefix(50)) { item in
+                            HStack(spacing: 12) {
+                                Image(systemName: "checkmark")
+                                    .font(.caption.bold()).foregroundStyle(.green)
+                                    .frame(width: 38, height: 38).background(.green.opacity(0.12), in: Circle())
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(item.label).font(.subheadline.weight(.semibold))
+                                    Text(item.startedAt.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text("\(max(1, item.seconds / 60)) 分钟").font(.subheadline.weight(.semibold).monospacedDigit())
+                            }.padding(13).background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
                     }
                 }
+                .padding(18)
             }
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("专注")
         }
     }
@@ -107,6 +158,7 @@ struct LibraryScreen: View {
             LibraryWebView()
                 .navigationTitle("图书馆座位")
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.visible, for: .navigationBar)
         }
     }
 }
