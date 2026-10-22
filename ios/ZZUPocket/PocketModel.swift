@@ -21,6 +21,19 @@ struct Semester: Identifiable {
     let weeks: [Int]
 }
 
+struct CardTrade: Identifiable {
+    let id: String
+    let date: String
+    let merchant: String
+    let summary: String
+    let amount: Double
+}
+
+struct RoomNode: Identifiable {
+    let id: String
+    let name: String
+}
+
 @MainActor
 final class PocketModel: ObservableObject {
     @Published var token: String? = TokenStore.load()
@@ -30,6 +43,12 @@ final class PocketModel: ObservableObject {
     @Published var week = 1
     @Published var balance: Double?
     @Published var electricity: Double?
+    @Published var trades: [CardTrade] = []
+    @Published var roomNodes: [RoomNode] = []
+    @Published var roomLevel = "area"
+    @Published var roomNextLevel: String?
+    @Published var roomIsLastLevel = false
+    @Published var roomScope: [String: String] = [:]
     @Published var roomId = UserDefaults.standard.string(forKey: "roomId") ?? ""
     @Published var busy = false
     @Published var error: String?
@@ -51,6 +70,7 @@ final class PocketModel: ObservableObject {
         lessons = []
         balance = nil
         electricity = nil
+        trades = []
     }
 
     func saveRoom() {
@@ -121,6 +141,68 @@ final class PocketModel: ObservableObject {
     }
 
     func refreshElectricity() async throws {
+        let access = try await ecardAccessToken()
+        let parts = roomId.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 5, parts[2].isEmpty, !parts[0].isEmpty, !parts[1].isEmpty, !parts[3].isEmpty, !parts[4].isEmpty else { throw PocketError.message("房间号格式应为 area-building--level-room") }
+        let payload: [String: Any] = ["utilityType": "electric", "bigArea": "", "area": String(parts[0]), "building": String(parts[1]), "unit": "", "level": String(parts[3]), "room": roomId, "subArea": ""]
+        let accountURL = try API.url(API.ecard, "/server/utilities/account")
+        let result = try await API.postJSON(accountURL, token: access, payload: payload)
+        let templates = (result["resultData"] as? [String: Any])?["templateList"] as? [[String: Any]] ?? []
+        let amount = templates.first(where: { $0["code"] as? String == "quantity" })?["value"]
+        guard let value = (amount as? NSNumber)?.doubleValue ?? Double("\(amount ?? "")") else { throw PocketError.message("未找到剩余电量") }
+        electricity = value
+    }
+
+    func refreshTrades() async throws {
+        let access = try await ecardAccessToken()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let body: [String: Any] = ["pageSize": "50", "pageNo": 0, "tradeType": "1,2,3", "fromDate": formatter.string(from: Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()), "toDate": formatter.string(from: Date())]
+        let url = try API.url(API.ecard, "/server/user/tradeList")
+        let result = try await API.postJSON(url, token: access, payload: body)
+        guard result["success"] as? Bool == true, let rows = result["resultData"] as? [[String: Any]] else { throw PocketError.message(result["message"] as? String ?? "校园卡流水格式有误") }
+        trades = rows.enumerated().compactMap { index, row in
+            guard let amount = Double("\(row["amt"] ?? "")") else { return nil }
+            return CardTrade(id: "\(row["journo"] ?? index)-\(index)", date: row["date"] as? String ?? "", merchant: row["merchantName"] as? String ?? "", summary: row["summary"] as? String ?? "", amount: amount)
+        }
+    }
+
+    func startRoomPicker() async throws {
+        roomScope = [:]
+        try await loadRoomLevel("area")
+    }
+
+    func pickRoomNode(_ node: RoomNode) async throws {
+        if roomIsLastLevel {
+            roomId = node.id
+            saveRoom()
+            return
+        }
+        guard let next = roomNextLevel else { throw PocketError.message("学校没有返回下一层房间类型") }
+        roomScope[roomLevel.lowercased()] = node.id
+        try await loadRoomLevel(next)
+    }
+
+    private func loadRoomLevel(_ level: String) async throws {
+        let access = try await ecardAccessToken()
+        var body: [String: Any] = ["utilityType": "electric", "locationType": level]
+        for key in ["bigArea", "area", "building", "unit", "level", "room", "subArea"] {
+            body[key] = roomScope[key.lowercased()] ?? ""
+        }
+        let url = try API.url(API.ecard, "/server/utilities/location")
+        let result = try await API.postJSON(url, token: access, payload: body)
+        guard result["success"] as? Bool == true, let value = result["resultData"] as? [String: Any] else { throw PocketError.message(result["message"] as? String ?? "房间列表格式有误") }
+        roomLevel = value["locationType"] as? String ?? level
+        roomNextLevel = value["nextLocationType"] as? String
+        roomIsLastLevel = value["end"] as? Bool ?? false
+        roomNodes = (value["locationList"] as? [[String: Any]] ?? []).compactMap { item in
+            guard let id = item["id"] as? String else { return nil }
+            return RoomNode(id: id, name: item["name"] as? String ?? id)
+        }
+    }
+
+    private func ecardAccessToken() async throws -> String {
         guard let token = validToken else { throw PocketError.message("登录已过期，请重新登录") }
         let openURL = try API.url(API.ecard, "/server/auth/host/open", query: [.init(name: "host", value: "11"), .init(name: "org", value: "2"), .init(name: "token", value: token)])
         let (_, redirect) = try await API.request(openURL, redirects: false)
@@ -131,14 +213,6 @@ final class PocketModel: ObservableObject {
         let (tokenData, tokenResponse) = try await API.request(tokenURL, method: "POST", headers: ["Content-Type": "application/json"], body: try JSONSerialization.data(withJSONObject: ["tid": tid]))
         let tokenResult = try API.json(tokenData, tokenResponse)
         guard let access = (tokenResult["resultData"] as? [String: Any])?["accessToken"] as? String else { throw PocketError.message("一卡通认证失败") }
-        let parts = roomId.split(separator: "-", omittingEmptySubsequences: false)
-        guard parts.count == 5, parts[2].isEmpty, !parts[0].isEmpty, !parts[1].isEmpty, !parts[3].isEmpty, !parts[4].isEmpty else { throw PocketError.message("房间号格式应为 area-building--level-room") }
-        let payload: [String: Any] = ["utilityType": "electric", "bigArea": "", "area": String(parts[0]), "building": String(parts[1]), "unit": "", "level": String(parts[3]), "room": roomId, "subArea": ""]
-        let accountURL = try API.url(API.ecard, "/server/utilities/account")
-        let result = try await API.postJSON(accountURL, token: access, payload: payload)
-        let templates = (result["resultData"] as? [String: Any])?["templateList"] as? [[String: Any]] ?? []
-        let amount = templates.first(where: { $0["code"] as? String == "quantity" })?["value"]
-        guard let value = (amount as? NSNumber)?.doubleValue ?? Double("\(amount ?? "")") else { throw PocketError.message("未找到剩余电量") }
-        electricity = value
+        return access
     }
 }

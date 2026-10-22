@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var model: PocketModel
+    @State private var showingRooms = false
 
     var body: some View {
         Group {
@@ -74,18 +75,49 @@ struct ContentView: View {
                 Section("校园卡") {
                     LabeledContent("余额", value: model.balance.map { String(format: "¥%.2f", $0) } ?? "--")
                     Button("查询余额") { Task { await model.perform { try await model.refreshBalance() } } }.disabled(model.busy)
+                    Button("近 30 天流水") { Task { await model.perform { try await model.refreshTrades() } } }.disabled(model.busy)
+                    ForEach(model.trades) { trade in
+                        VStack(alignment: .leading) {
+                            HStack {
+                                Text(trade.merchant.isEmpty ? trade.summary : trade.merchant)
+                                Spacer()
+                                Text(String(format: "¥%.2f", trade.amount))
+                            }
+                            Text(trade.date).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 Section("宿舍电量") {
                     TextField("房间 ID，如 99-16--32-8101", text: $model.roomId)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .onSubmit { model.saveRoom() }
+                    Button("在线选择房间") {
+                        showingRooms = true
+                        Task { await model.perform { try await model.startRoomPicker() } }
+                    }.disabled(model.busy)
                     LabeledContent("剩余电量", value: model.electricity.map { String(format: "%.2f 度", $0) } ?? "--")
                     Button("查询电量") { model.saveRoom(); Task { await model.perform { try await model.refreshElectricity() } } }.disabled(model.busy || model.roomId.isEmpty)
                 }
             }
             .navigationTitle("校园")
             .overlay { if model.busy { ProgressView() } }
+            .sheet(isPresented: $showingRooms) {
+                NavigationStack {
+                    List(model.roomNodes) { node in
+                        Button(node.name) {
+                            if model.roomIsLastLevel {
+                                Task { await model.perform { try await model.pickRoomNode(node) }; if model.error == nil { showingRooms = false } }
+                            } else {
+                                Task { await model.perform { try await model.pickRoomNode(node) } }
+                            }
+                        }
+                    }
+                    .navigationTitle("选择\(model.roomLevel)")
+                    .toolbar { Button("关闭") { showingRooms = false } }
+                    .overlay { if model.busy { ProgressView() } }
+                }
+            }
         }
     }
 
