@@ -67,18 +67,14 @@ final class PocketModel: ObservableObject {
 
     func refreshSchedule() async throws {
         guard let token = validToken else { throw PocketError.message("登录已过期，请重新登录") }
-        let url = try API.url(API.jwxt, "/eams-door/api/v1/calendar/get-all-semesters")
-        let (data, response) = try await API.request(url, headers: ["Authorization": token])
-        let result = try API.json(data, response)
+        let result = try await API.eas("/eams-door/api/v1/calendar/get-all-semesters", token: token, step: "读取学期列表")
         guard let semestersData = result["data"] as? [[String: Any]] else { throw PocketError.message(result["msg"] as? String ?? "学期列表格式有误") }
         semesters = semestersData.compactMap { value in
             guard let id = value["id"] as? Int else { return nil }
             return Semester(id: id, name: value["nameZh"] as? String ?? "学期 \(id)", startDate: value["startDate"] as? String, weeks: value["weekIndices"] as? [Int] ?? [])
         }
         if selectedSemester == nil || !semesters.contains(where: { $0.id == selectedSemester }) {
-            let currentURL = try API.url(API.jwxt, "/eams-micro-server/api/v1/semester/current-semester")
-            let (currentData, currentResponse) = try await API.request(currentURL, headers: ["Authorization": token])
-            let current = try API.json(currentData, currentResponse)
+            let current = try await API.eas("/eams-micro-server/api/v1/semester/current-semester", token: token, step: "读取当前学期")
             let currentID = (current["data"] as? [String: Any])?["id"] as? Int
             selectedSemester = semesters.first(where: { $0.id == currentID })?.id ?? semesters.first?.id
         }
@@ -87,9 +83,7 @@ final class PocketModel: ObservableObject {
 
     func loadSemester() async throws {
         guard let token = validToken, let selectedSemester else { throw PocketError.message("请选择学期") }
-        let url = try API.url(API.jwxt, "/eams-micro-server/api/v1/lesson/student/course-table/\(selectedSemester)")
-        let (data, response) = try await API.request(url, headers: ["Authorization": token])
-        let result = try API.json(data, response)
+        let result = try await API.eas("/eams-micro-server/api/v1/lesson/student/course-table/\(selectedSemester)", token: token, step: "读取课表")
         guard let courses = result["data"] as? [[String: Any]] else { throw PocketError.message(result["msg"] as? String ?? "课表格式有误") }
         lessons = courses.flatMap { entry -> [Lesson] in
             let course = entry["course"] as? [String: Any] ?? [:]

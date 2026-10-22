@@ -21,6 +21,8 @@ enum API {
         request.httpMethod = method
         request.httpBody = body
         request.timeoutInterval = 25
+        request.setValue("okhttp/3.12.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
         let (data, response) = try await session.data(for: request)
         if !redirects { session.invalidateAndCancel() }
@@ -55,6 +57,30 @@ enum API {
         let body = try JSONSerialization.data(withJSONObject: payload)
         let (data, response) = try await request(url, method: "POST", headers: ["Authorization": token, "Content-Type": "application/json"], body: body)
         return try json(data, response)
+    }
+
+    static func eas(_ path: String, token: String, step: String) async throws -> [String: Any] {
+        let url = try self.url(jwxt, path)
+        let (data, response) = try await request(url, headers: ["Authorization": token], redirects: false)
+        if response.statusCode == 401 || response.statusCode == 403 {
+            let identityURL = try self.url(jwxt, "/eams-door/api/v1/portal/home/user-info")
+            let identityStatus: Int?
+            do {
+                let (_, probeResponse) = try await request(identityURL, headers: ["Authorization": token], redirects: false)
+                identityStatus = probeResponse.statusCode
+            } catch {
+                identityStatus = nil
+            }
+            if identityStatus == 401 || identityStatus == 403 {
+                throw PocketError.message("本科教务未接受此账号（\(step) · HTTP \(response.statusCode)）。若你是研究生，课表在研究生系统，当前 iOS 版尚未接入；若你是本科生，请重新登录后再试。")
+            }
+            if identityStatus == 200 {
+                throw PocketError.message("本科教务拒绝\(step)（HTTP \(response.statusCode)），但用户信息接口可访问。请稍后重试或联系学校教务系统。")
+            }
+            throw PocketError.message("本科教务未通过鉴权（\(step) · HTTP \(response.statusCode)）。请退出并重新登录；若仍失败，需检查该账号的教务权限。")
+        }
+        do { return try json(data, response) }
+        catch { throw PocketError.message("本科教务\(step)：\(error.localizedDescription)") }
     }
 }
 
