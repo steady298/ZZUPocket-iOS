@@ -1,0 +1,22 @@
+name: ZZUPocket
+options:
+  bundleIdPrefix: com.zzupocket
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+    IPHONEOS_DEPLOYMENT_TARGET: '17.0'
+    TARGETED_DEVICE_FAMILY: '1,2'
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_KEY_CFBundleDisplayName: ZZUPocket
+    INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+    INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+    CODE_SIGNING_ALLOWED: NO
+targets:
+  ZZUPocket:
+    type: application
+    platform: iOS
+    sources:
+      - path: ZZUPocket
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.zzupocket.ios

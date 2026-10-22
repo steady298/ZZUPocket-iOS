@@ -1,0 +1,43 @@
+name: iOS unsigned IPA
+
+on:
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate --spec ios/project.yml --project ios
+      - name: Build device app without signing
+        run: |
+          xcodebuild -project ios/ZZUPocket.xcodeproj -scheme ZZUPocket \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/ZZUPocket.app" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          zip -q -r "$GITHUB_WORKSPACE/ZZUPocket-iOS-unsigned.ipa" Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZZUPocket-iOS-unsigned
+          path: ZZUPocket-iOS-unsigned.ipa
+          if-no-files-found: error
