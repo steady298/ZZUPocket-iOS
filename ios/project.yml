@@ -15,6 +15,14 @@ targets:
   ZZUPocket:
     type: application
     platform: iOS
+    info:
+      path: ZZUPocket/Info.plist
+      properties:
+        NSAppTransportSecurity:
+          NSExceptionDomains:
+            order.lib.zzu.edu.cn:
+              NSIncludesSubdomains: false
+              NSExceptionAllowsInsecureHTTPLoads: true
     sources:
       - path: ZZUPocket
     settings:

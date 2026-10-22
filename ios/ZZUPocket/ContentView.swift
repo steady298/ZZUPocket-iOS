@@ -11,6 +11,8 @@ struct ContentView: View {
                     schedule.tabItem { Label("课表", systemImage: "calendar") }
                     GraduateScheduleView().tabItem { Label("研究生", systemImage: "graduationcap") }
                     campus.tabItem { Label("校园", systemImage: "building.2") }
+                    FocusScreen().tabItem { Label("专注", systemImage: "timer") }
+                    LibraryScreen().tabItem { Label("图书馆", systemImage: "books.vertical") }
                     settings.tabItem { Label("我的", systemImage: "person.crop.circle") }
                 }
             } else {
