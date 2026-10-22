@@ -8,6 +8,7 @@ struct ContentView: View {
             if model.loggedIn {
                 TabView {
                     schedule.tabItem { Label("课表", systemImage: "calendar") }
+                    GraduateScheduleView().tabItem { Label("研究生", systemImage: "graduationcap") }
                     campus.tabItem { Label("校园", systemImage: "building.2") }
                     settings.tabItem { Label("我的", systemImage: "person.crop.circle") }
                 }
@@ -97,6 +98,68 @@ struct ContentView: View {
                 Section { Text("ZZUPocket 是非官方校园助手。数据直接与学校系统交互，登录令牌仅保存在本机。") }
             }
             .navigationTitle("我的")
+        }
+    }
+}
+
+private struct GraduateScheduleView: View {
+    @StateObject private var grad = GraduateSchedule()
+    @State private var showingLogin = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button("登录研究生系统") { showingLogin = true }
+                    Button("同步研究生课表") { Task { await grad.refresh() } }.disabled(grad.busy)
+                } footer: {
+                    Text("研究生教务使用学校网页会话，需要在学校页面单独登录；CAS 令牌不能直接查询研究生课表。")
+                }
+                if !grad.terms.isEmpty {
+                    Picker("学期", selection: $grad.selectedTerm) {
+                        ForEach(grad.terms) { term in Text(term.name).tag(term.code) }
+                    }.onChange(of: grad.selectedTerm) { _, code in
+                        if !grad.busy { Task { await grad.selectTerm(code) } }
+                    }
+                    HStack {
+                        Button { grad.week -= 1 } label: { Image(systemName: "chevron.left") }.disabled(grad.week <= 1)
+                        Spacer()
+                        Text("第 \(grad.week) 周").font(.headline)
+                        Spacer()
+                        Button { grad.week += 1 } label: { Image(systemName: "chevron.right") }.disabled(grad.week >= 30)
+                    }
+                    let selected = grad.lessons.filter { $0.week == grad.week }.sorted { ($0.weekday, $0.start) < ($1.weekday, $1.start) }
+                    if selected.isEmpty { ContentUnavailableView("本周暂无课程", systemImage: "calendar") }
+                    ForEach(1...7, id: \.self) { day in
+                        let rows = selected.filter { $0.weekday == day }
+                        if !rows.isEmpty {
+                            Section(["周一", "周二", "周三", "周四", "周五", "周六", "周日"][day - 1]) {
+                                ForEach(rows) { lesson in
+                                    VStack(alignment: .leading) {
+                                        Text(lesson.name).font(.headline)
+                                        Text("第 \(lesson.start) 节")
+                                        if !lesson.room.isEmpty { Text(lesson.room) }
+                                        if !lesson.teacher.isEmpty { Text(lesson.teacher) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("研究生课表")
+            .overlay { if grad.busy { ProgressView() } }
+            .sheet(isPresented: $showingLogin, onDismiss: { Task { await grad.refresh() } }) {
+                NavigationStack {
+                    GraduateLoginView().ignoresSafeArea(edges: .bottom)
+                        .navigationTitle("学校认证")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar { Button("完成") { showingLogin = false } }
+                }
+            }
+            .alert("研究生教务", isPresented: Binding(get: { grad.error != nil }, set: { if !$0 { grad.error = nil } })) {
+                Button("确定", role: .cancel) { grad.error = nil }
+            } message: { Text(grad.error ?? "") }
         }
     }
 }

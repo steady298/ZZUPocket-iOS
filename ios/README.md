@@ -1,6 +1,6 @@
 # ZZUPocket iOS (iOS 17+)
 
-Native SwiftUI client, separate from the Android app. Current scope: CAS login (including SMS MFA), undergraduate semester schedule, campus card balance, and electricity lookup by full room ID. Graduate schedule, library, focus timer, transaction history, room picker and widgets are **not** implemented. No account data is embedded in the build.
+Native SwiftUI client, separate from the Android app. Current scope: CAS login (including SMS MFA), undergraduate semester schedule, graduate semester schedule (separate school web CAS login), campus card balance, and electricity lookup by full room ID. Library, focus timer, transaction history, room picker and widgets are **not** implemented. No account data is embedded in the build. Graduate sign-in uses a WKWebView; the web session may expire and require signing in again.
 
 ## Build
 
